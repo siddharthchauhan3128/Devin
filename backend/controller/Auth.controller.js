@@ -1,6 +1,7 @@
 import User from '../models/user.model.js'
 import jwt from 'jsonwebtoken'
 import bcrypt from 'bcrypt'
+import redisClient from '../services/redis.service.js'
 
 const cookieOptions = {
     httpOnly: true,
@@ -31,6 +32,7 @@ const register = async(req,res)=>{
             password: hashedPassword
         });
         await user.save();
+        console.log(process.env.JWT_SECRET);
 
         const token = jwt.sign(
                                 { id: user._id },
@@ -49,6 +51,8 @@ const register = async(req,res)=>{
             }
         });
     }catch(err){
+        console.error(err);
+
           return res.status(500).json({
             message: "Internal Server Error"
         });
@@ -64,13 +68,18 @@ const login = async(req,res)=>{
                 message: 'Email or Password is not defined'
             })
         }
-        const user = await User.findOne({ email });
+        const user = await User.findOne({ email }).select("+password");
 
         if (!user) {
             return res.status(404).json({
                 message: "User not found"
             });
         }
+
+        console.log("Request body:", req.body);
+        console.log("Password from request:", password);
+        console.log("User from DB:", user);
+        console.log("Hashed password:", user.password);
 
         const isMatch = await bcrypt.compare(password, user.password);
 
@@ -90,6 +99,7 @@ const login = async(req,res)=>{
 
         return res.status(200).json({
             message: "Login successful",
+            token,
             user: {
                 id: user._id,
                 email: user.email
@@ -102,17 +112,34 @@ const login = async(req,res)=>{
             message: "Internal Server Error"
         });
     }
+}
+const profileController = async(req,res)=>{
+
+    console.log(req.user)
+
+    return res.status(200).json({
+        user: req.user
+    })
 
 }
 
-const logout = (req, res) => {
-    res.clearCookie("token", cookieOptions);
 
-    return res.status(200).json({
-        message: "Logged out successfully"
-    });
+const logout = (req, res) => {
+    try{
+        const token = req.cookies.token|| req.headers.authorization?.split(" ")[1];
+
+        redisClient.set(token, "logout", "EX", 60 * 60 * 24);
+
+        return res.status(200).json({
+            message: "Logout successful"
+        })
+    }catch(err){
+        console.error(err);
+        return res.status(500).json({
+            message:"Internal server error"
+        })
+
+    }
 };
 
-
-
-export { register, login , logout};
+export { register, login , logout , profileController};
